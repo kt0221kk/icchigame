@@ -108,6 +108,10 @@ export default function Home() {
           >
             ルームに参加
           </button>
+
+          <div className="mt-4 text-center text-xs text-gray-400">
+            Ver 1.1 (Vercel Fixed)
+          </div>
         </div>
       </div>
     </div>
