@@ -30,7 +30,7 @@ export default function RoomPage() {
   // ルーム情報取得関数
   const fetchRoomData = async () => {
     try {
-      const res = await fetch(`/api/rooms/${roomCode}`);
+      const res = await fetch(`/api/rooms/${roomCode}`, { cache: "no-store" });
       if (!res.ok) {
         if (res.status === 404) {
           throw new Error("ルームが見つからない");
@@ -139,7 +139,7 @@ export default function RoomPage() {
     // 初回実行は initRoom で行われるため、インターバルのみ設定
     const interval = setInterval(async () => {
       await fetchRoomData();
-    }, 1000);
+    }, 2000);
 
     return () => clearInterval(interval);
   }, [roomCode, playerId]);
