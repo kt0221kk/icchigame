@@ -61,11 +61,12 @@ export async function createRoom(hostName: string): Promise<Room> {
 
 // ルーム取得
 export async function getRoom(code: string): Promise<Room | undefined> {
+  const normalizedCode = code.toUpperCase().trim();
   if (USE_KV) {
-    const room = await kv.get<Room>(`room:${code}`);
+    const room = await kv.get<Room>(`room:${normalizedCode}`);
     return room || undefined;
   } else {
-    return localRooms.get(code);
+    return localRooms.get(normalizedCode);
   }
 }
 
