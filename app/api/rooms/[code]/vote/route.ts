@@ -11,7 +11,7 @@ export async function POST(
     const { code } = await params;
     const { playerId, topicId } = await request.json();
 
-    const room = getRoom(code);
+    const room = await getRoom(code);
     if (!room) {
       return NextResponse.json(
         { error: "ルームが見つかりません" },
@@ -58,8 +58,8 @@ export async function POST(
       const sortedProposals = [...updatedProposals].sort((a, b) => b.votes - a.votes);
       selectedTopic = sortedProposals[0]?.topic;
 
-      // 回答フェーズへ移行
-      newPhase = "answering";
+      // ホストがお題を決定するフェーズへ移行
+      newPhase = "topic_selection";
 
       // hasSubmittedとanswerをリセット
       updatedPlayers.forEach(p => {
@@ -68,7 +68,7 @@ export async function POST(
       });
     }
 
-    const updatedRoom = updateRoom(code, {
+    const updatedRoom = await updateRoom(code, {
       players: updatedPlayers,
       phase: newPhase,
       topicProposals: updatedProposals,

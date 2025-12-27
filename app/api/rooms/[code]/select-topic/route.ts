@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { getRoom, updateRoom } from "@/lib/rooms";
 
-// 次のラウンドへ
+// ホストによるお題決定
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
     const { code } = await params;
-    const { playerId } = await request.json();
+    const { playerId, topicId } = await request.json();
 
     const room = await getRoom(code);
     if (!room) {
@@ -21,40 +21,37 @@ export async function POST(
     // ホストチェック
     if (room.hostId !== playerId) {
       return NextResponse.json(
-        { error: "ホストのみが次のラウンドを開始できます" },
+        { error: "ホストのみがお題を決定できます" },
         { status: 403 }
       );
     }
 
-    if (room.phase !== "results") {
+    if (room.phase !== "topic_selection") {
       return NextResponse.json(
-        { error: "結果表示フェーズではありません" },
+        { error: "お題決定フェーズではありません" },
         { status: 400 }
       );
     }
 
-    // プレイヤーの状態をリセット
-    const resetPlayers = room.players.map(p => ({
-      ...p,
-      hasSubmitted: false,
-      proposedTopic: undefined,
-      votedTopicId: undefined,
-      answer: undefined,
-    }));
+    const selectedProposal = room.topicProposals.find(p => p.id === topicId);
+    if (!selectedProposal) {
+      return NextResponse.json(
+        { error: "選択されたお題が見つかりません" },
+        { status: 404 }
+      );
+    }
 
+    // 回答フェーズへ移行
     const updatedRoom = await updateRoom(code, {
-      phase: "proposing",
-      currentRound: room.currentRound + 1,
-      topicProposals: [],
-      selectedTopic: undefined,
-      players: resetPlayers,
+      phase: "answering",
+      selectedTopic: selectedProposal.topic,
     });
 
     return NextResponse.json({ room: updatedRoom });
   } catch (error) {
-    console.error("Error starting next round:", error);
+    console.error("Error selecting topic:", error);
     return NextResponse.json(
-      { error: "次のラウンドの開始に失敗しました" },
+      { error: "お題の決定に失敗しました" },
       { status: 500 }
     );
   }

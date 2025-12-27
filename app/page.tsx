@@ -14,17 +14,28 @@ export default function Home() {
       return;
     }
 
-    const res = await fetch("/api/rooms", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hostName: playerName }),
-    });
+    try {
+      const res = await fetch("/api/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hostName: playerName }),
+      });
 
-    const data = await res.json();
-    router.push(`/room/${data.roomCode}?name=${encodeURIComponent(playerName)}`);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: "エラーが発生しました" }));
+        alert(errorData.error || "ルームの作成に失敗しました");
+        return;
+      }
+
+      const data = await res.json();
+      router.push(`/room/${data.roomCode}?name=${encodeURIComponent(playerName)}&playerId=${data.playerId}`);
+    } catch (err) {
+      console.error("Error creating room:", err);
+      alert("ルームの作成に失敗しました");
+    }
   };
 
-  const joinRoom = async () => {
+  const joinRoom = () => {
     if (!playerName.trim()) {
       alert("プレイヤー名を入力してください");
       return;

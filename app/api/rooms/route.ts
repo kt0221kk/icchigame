@@ -4,7 +4,12 @@ import { createRoom } from "@/lib/rooms";
 // ルーム作成
 export async function POST(request: Request) {
   try {
-    const { hostName } = await request.json();
+    const body = await request.json().catch((err) => {
+      console.error("JSON parse error:", err);
+      return {};
+    });
+
+    const { hostName } = body;
 
     if (!hostName || !hostName.trim()) {
       return NextResponse.json(
@@ -13,7 +18,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const room = createRoom(hostName.trim());
+
+    const room = await createRoom(hostName.trim());
 
     return NextResponse.json({
       roomCode: room.code,

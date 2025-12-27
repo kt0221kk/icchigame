@@ -9,9 +9,9 @@ export async function POST(
 ) {
   try {
     const { code } = await params;
-    const { playerId, topic } = await request.json();
+    const { playerId, topic, skip } = await request.json();
 
-    const room = getRoom(code);
+    const room = await getRoom(code);
     if (!room) {
       return NextResponse.json(
         { error: "ルームが見つかりません" },
@@ -34,7 +34,7 @@ export async function POST(
       );
     }
 
-    if (!topic || !topic.trim()) {
+    if (!skip && (!topic || !topic.trim())) {
       return NextResponse.json(
         { error: "お題を入力してください" },
         { status: 400 }
@@ -44,7 +44,11 @@ export async function POST(
     // プレイヤーのお題を更新
     const updatedPlayers = room.players.map(p =>
       p.id === playerId
-        ? { ...p, proposedTopic: topic.trim(), hasSubmitted: true }
+        ? { 
+            ...p, 
+            proposedTopic: skip ? undefined : topic.trim(), 
+            hasSubmitted: true 
+          }
         : p
     );
 
@@ -71,7 +75,7 @@ export async function POST(
       updatedPlayers.forEach(p => { p.hasSubmitted = false; });
     }
 
-    const updatedRoom = updateRoom(code, {
+    const updatedRoom = await updateRoom(code, {
       players: updatedPlayers,
       phase: newPhase,
       topicProposals,

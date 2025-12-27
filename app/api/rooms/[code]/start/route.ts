@@ -10,7 +10,7 @@ export async function POST(
     const { code } = await params;
     const { playerId } = await request.json();
 
-    const room = getRoom(code);
+    const room = await getRoom(code);
     if (!room) {
       return NextResponse.json(
         { error: "ルームが見つかりません" },
@@ -34,7 +34,7 @@ export async function POST(
     }
 
     // お題提案フェーズに移行
-    const updatedRoom = updateRoom(code, {
+    const updatedRoom = await updateRoom(code, {
       phase: "proposing",
       currentRound: room.currentRound + 1,
       topicProposals: [],

@@ -2,7 +2,9 @@ export type GamePhase =
   | "waiting"      // プレイヤー待機中
   | "proposing"    // お題提案中
   | "voting"       // お題投票中
+  | "topic_selection" // お題決定中（ホスト）
   | "answering"    // 回答入力中
+  | "scoring"      // 採点中（ホスト）
   | "results"      // 結果表示中
   | "ended";       // ゲーム終了
 

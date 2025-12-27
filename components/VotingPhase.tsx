@@ -76,45 +76,47 @@ export default function VotingPhase({ room, playerId }: Props) {
                 >
                   <div className="flex justify-between items-center">
                     <div className="text-left">
-                      <div className="font-medium text-gray-800">{proposal.topic}</div>
-                      <div className="text-xs text-gray-500">提案: {proposal.playerName}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-2xl font-bold text-purple-600">{proposal.votes}</div>
-                      <div className="text-xs text-gray-500">票</div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {/* お題リスト */}
-          <div className="space-y-3">
-            {room.topicProposals.map((proposal) => (
-              <button
-                key={proposal.id}
-                onClick={() => setSelectedTopicId(proposal.id)}
-                className={`w-full p-4 rounded-lg border-2 transition-all duration-200 text-left ${
-                  selectedTopicId === proposal.id
-                    ? "border-purple-500 bg-purple-50"
-                    : "border-gray-200 bg-white hover:border-purple-300"
-                }`}
-                disabled={submitting}
-              >
-                <div className="flex justify-between items-center">
                   <div>
-                    <div className="text-lg font-bold text-gray-800">{proposal.topic}</div>
-                    <div className="text-sm text-gray-500">提案: {proposal.playerName}</div>
+                    <div className="font-medium text-gray-800">{proposal.topic}</div>
+                    {/* 匿名化のため提案者は表示しない */}
                   </div>
-                  {selectedTopicId === proposal.id && (
-                    <div className="text-purple-600 text-2xl">✓</div>
-                  )}
                 </div>
-              </button>
-            ))}
-          </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold text-purple-600">{proposal.votes}</div>
+                  <div className="text-xs text-gray-500">票</div>
+                </div>
+              </div>
+            </div>
+          ))}
+      </div>
+    </div>
+  ) : (
+    <div className="space-y-4">
+      {/* お題リスト */}
+      <div className="space-y-3">
+        {room.topicProposals.map((proposal) => (
+          <button
+            key={proposal.id}
+            onClick={() => setSelectedTopicId(proposal.id)}
+            className={`w-full p-4 rounded-lg border-2 transition-all duration-200 text-left ${
+              selectedTopicId === proposal.id
+                ? "border-purple-500 bg-purple-50"
+                : "border-gray-200 bg-white hover:border-purple-300"
+            }`}
+            disabled={submitting}
+          >
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="text-lg font-bold text-gray-800">{proposal.topic}</div>
+                {/* 匿名化のため提案者は表示しない */}
+              </div>
+              {selectedTopicId === proposal.id && (
+                <div className="text-purple-600 text-2xl">✓</div>
+              )}
+            </div>
+          </button>
+        ))}
+      </div>
 
           <button
             onClick={submitVote}

@@ -11,7 +11,7 @@ export async function POST(
     const { code } = await params;
     const { playerId, answer } = await request.json();
 
-    const room = getRoom(code);
+    const room = await getRoom(code);
     if (!room) {
       return NextResponse.json(
         { error: "ルームが見つかりません" },
@@ -54,36 +54,11 @@ export async function POST(
     let newPhase: GamePhase = room.phase;
 
     if (allAnswered) {
-      // スコア計算
-      const answerMap = new Map<string, string[]>();
-
-      updatedPlayers.forEach(p => {
-        if (p.answer) {
-          const normalized = p.answer.toLowerCase().trim();
-          if (!answerMap.has(normalized)) {
-            answerMap.set(normalized, []);
-          }
-          answerMap.get(normalized)!.push(p.name);
-        }
-      });
-
-      // 一致した回答にスコア加算
-      updatedPlayers.forEach(p => {
-        if (p.answer) {
-          const normalized = p.answer.toLowerCase().trim();
-          const matchCount = answerMap.get(normalized)?.length || 0;
-          if (matchCount >= 2) {
-            // 一致人数に応じてスコア加算
-            p.score += matchCount;
-          }
-        }
-      });
-
-      // 結果表示フェーズへ移行
-      newPhase = "results";
+      // 採点フェーズへ移行（スコア計算はまだしない）
+      newPhase = "scoring";
     }
 
-    const updatedRoom = updateRoom(code, {
+    const updatedRoom = await updateRoom(code, {
       players: updatedPlayers,
       phase: newPhase,
     });

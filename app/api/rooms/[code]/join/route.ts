@@ -17,7 +17,7 @@ export async function POST(
       );
     }
 
-    const room = getRoom(code);
+    const room = await getRoom(code);
     if (!room) {
       return NextResponse.json(
         { error: "ルームが見つかりません" },
@@ -32,7 +32,7 @@ export async function POST(
       );
     }
 
-    const result = addPlayer(code, playerName.trim());
+    const result = await addPlayer(code, playerName.trim());
 
     if (!result) {
       return NextResponse.json(

@@ -1,7 +1,15 @@
 import { Room, Player } from "@/types/game";
+import { kv } from "@vercel/kv";
 
-// メモリ上のルームストレージ
-const rooms = new Map<string, Room>();
+// 開発環境でのホットリロード対策として globalThis を使用
+const globalForRooms = global as unknown as { rooms: Map<string, Room> };
+if (!globalForRooms.rooms) {
+  globalForRooms.rooms = new Map<string, Room>();
+}
+const localRooms = globalForRooms.rooms;
+
+// Vercel KVが利用可能かどうか判定
+const USE_KV = !!process.env.KV_REST_API_URL;
 
 // ルームコード生成
 export function generateRoomCode(): string {
@@ -19,7 +27,7 @@ export function generatePlayerId(): string {
 }
 
 // ルーム作成
-export function createRoom(hostName: string): Room {
+export async function createRoom(hostName: string): Promise<Room> {
   const code = generateRoomCode();
   const hostId = generatePlayerId();
 
@@ -42,28 +50,58 @@ export function createRoom(hostName: string): Room {
     updatedAt: Date.now(),
   };
 
-  rooms.set(code, room);
+  if (USE_KV) {
+    await kv.set(`room:${code}`, room, { ex: 3600 }); // 1時間で期限切れ
+  } else {
+    localRooms.set(code, room);
+  }
+  
   return room;
 }
 
 // ルーム取得
-export function getRoom(code: string): Room | undefined {
-  return rooms.get(code);
+export async function getRoom(code: string): Promise<Room | undefined> {
+  if (USE_KV) {
+    const room = await kv.get<Room>(`room:${code}`);
+    return room || undefined;
+  } else {
+    return localRooms.get(code);
+  }
 }
 
 // ルーム一覧（デバッグ用）
-export function getAllRooms(): Room[] {
-  return Array.from(rooms.values());
+export async function getAllRooms(): Promise<Room[]> {
+  if (USE_KV) {
+    // KVではkeysコマンドは重いがデバッグ用なので許容
+    const keys = await kv.keys("room:*");
+    if (keys.length === 0) return [];
+    
+    // パイプラインで取得したいが、型定義の都合上個別に取得するかmgetを使う
+    // mgetはキーのリストを取る
+    if (keys.length > 0) {
+        // mgetは(key1, key2, ...)の形式
+        const rooms = await kv.mget<Room[]>(...keys);
+        return rooms.filter((r): r is Room => !!r);
+    }
+    return [];
+  } else {
+    return Array.from(localRooms.values());
+  }
 }
 
 // ルーム削除
-export function deleteRoom(code: string): boolean {
-  return rooms.delete(code);
+export async function deleteRoom(code: string): Promise<boolean> {
+  if (USE_KV) {
+    const result = await kv.del(`room:${code}`);
+    return result > 0;
+  } else {
+    return localRooms.delete(code);
+  }
 }
 
 // ルーム更新
-export function updateRoom(code: string, updates: Partial<Room>): Room | undefined {
-  const room = rooms.get(code);
+export async function updateRoom(code: string, updates: Partial<Room>): Promise<Room | undefined> {
+  const room = await getRoom(code);
   if (!room) return undefined;
 
   const updatedRoom = {
@@ -72,13 +110,18 @@ export function updateRoom(code: string, updates: Partial<Room>): Room | undefin
     updatedAt: Date.now(),
   };
 
-  rooms.set(code, updatedRoom);
+  if (USE_KV) {
+    await kv.set(`room:${code}`, updatedRoom, { ex: 3600 });
+  } else {
+    localRooms.set(code, updatedRoom);
+  }
+  
   return updatedRoom;
 }
 
 // プレイヤー追加
-export function addPlayer(code: string, playerName: string): { room: Room; playerId: string } | undefined {
-  const room = rooms.get(code);
+export async function addPlayer(code: string, playerName: string): Promise<{ room: Room; playerId: string } | undefined> {
+  const room = await getRoom(code);
   if (!room) return undefined;
 
   // 同名チェック
@@ -101,19 +144,27 @@ export function addPlayer(code: string, playerName: string): { room: Room; playe
     updatedAt: Date.now(),
   };
 
-  rooms.set(code, updatedRoom);
+  if (USE_KV) {
+    await kv.set(`room:${code}`, updatedRoom, { ex: 3600 });
+  } else {
+    localRooms.set(code, updatedRoom);
+  }
+  
   return { room: updatedRoom, playerId };
 }
 
 // 古いルームのクリーンアップ（1時間以上古いもの）
+// KVの場合は自動削除されるので、主にローカル用
 export function cleanupOldRooms(): number {
+  if (USE_KV) return 0; // KVはTTLで管理
+
   const now = Date.now();
   const maxAge = 60 * 60 * 1000; // 1時間
   let deletedCount = 0;
 
-  for (const [code, room] of rooms.entries()) {
+  for (const [code, room] of localRooms.entries()) {
     if (now - room.updatedAt > maxAge) {
-      rooms.delete(code);
+      localRooms.delete(code);
       deletedCount++;
     }
   }
@@ -122,9 +173,14 @@ export function cleanupOldRooms(): number {
 }
 
 // 定期的なクリーンアップ（5分ごと）
-setInterval(() => {
-  const deleted = cleanupOldRooms();
-  if (deleted > 0) {
-    console.log(`Cleaned up ${deleted} old rooms`);
+if (!USE_KV) {
+  // 開発環境でHMRが走るたびにsetIntervalが増えるのを防ぐ
+  if (!(global as any).cleanupInterval) {
+    (global as any).cleanupInterval = setInterval(() => {
+      const deleted = cleanupOldRooms();
+      if (deleted > 0) {
+        console.log(`Cleaned up ${deleted} old rooms`);
+      }
+    }, 5 * 60 * 1000);
   }
-}, 5 * 60 * 1000);
+}

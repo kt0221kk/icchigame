@@ -8,7 +8,7 @@ export async function GET(
 ) {
   try {
     const { code } = await params;
-    const room = getRoom(code);
+    const room = await getRoom(code);
 
     if (!room) {
       return NextResponse.json(
