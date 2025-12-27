@@ -132,16 +132,49 @@ export default function RoomPage() {
     initRoom();
   }, [roomCode, playerName, router, urlPlayerId]);
 
-  // ポーリング
+  // Pusherによるリアルタイム更新
   useEffect(() => {
-    if (!playerId) return;
+    if (!playerId || !roomCode) return;
 
-    // 初回実行は initRoom で行われるため、インターバルのみ設定
-    const interval = setInterval(async () => {
-      await fetchRoomData();
-    }, 5000);
+    let pusher: any;
+    
+    // 1. 初回データ取得（念のため）
+    fetchRoomData();
 
-    return () => clearInterval(interval);
+    // 2. Pusher接続
+    const initPusher = async () => {
+        try {
+            const PusherJS = (await import("pusher-js")).default;
+            pusher = new PusherJS(process.env.NEXT_PUBLIC_PUSHER_KEY!, {
+                cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
+            });
+
+            const channel = pusher.subscribe(`room-${roomCode}`);
+            
+            channel.bind("update", (updatedRoom: Room) => {
+                console.log("Updated room via Pusher:", updatedRoom);
+                setRoom(updatedRoom);
+            });
+        } catch (e) {
+            console.error("Pusher init error:", e);
+        }
+    };
+
+    initPusher();
+
+    // バックアップとしてのポーリング（Pusherが切れた時用、間隔は長めに）
+    // 30秒に1回だけ生存確認程度に行う
+    const interval = setInterval(() => {
+      fetchRoomData();
+    }, 30000);
+
+    return () => {
+        if (pusher) {
+            pusher.unsubscribe(`room-${roomCode}`);
+            pusher.disconnect();
+        }
+        clearInterval(interval);
+    };
   }, [roomCode, playerId]);
 
   if (loading) {

@@ -59,11 +59,29 @@ export async function createRoom(hostName: string): Promise<Room> {
   return room;
 }
 
-// ルーム取得
+// 短期間のインメモリキャッシュ（Vercel KVへの負荷軽減用）
+const roomCache = new Map<string, { data: Room | undefined; timestamp: number }>();
+const CACHE_TTL = 1000; // 1秒間キャッシュする
+
+// ルーム取得（キャッシュ付き）
 export async function getRoom(code: string): Promise<Room | undefined> {
   const normalizedCode = code.toUpperCase().trim();
+  
   if (USE_KV) {
+    // キャッシュチェック
+    const cached = roomCache.get(normalizedCode);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      return cached.data;
+    }
+
     const room = await kv.get<Room>(`room:${normalizedCode}`);
+    
+    // キャッシュ更新
+    roomCache.set(normalizedCode, { 
+      data: room || undefined, 
+      timestamp: Date.now() 
+    });
+    
     return room || undefined;
   } else {
     return localRooms.get(normalizedCode);
@@ -115,6 +133,25 @@ export async function updateRoom(code: string, updates: Partial<Room>): Promise<
     await kv.set(`room:${code}`, updatedRoom, { ex: 3600 });
   } else {
     localRooms.set(code, updatedRoom);
+    
+    // インメモリキャッシュも更新しておく
+    const normalizedCode = code.toUpperCase().trim();
+    roomCache.set(normalizedCode, { 
+      data: updatedRoom, 
+      timestamp: Date.now() 
+    });
+  }
+
+  // Pusherで更新通知を送る
+  // Vercel Edge Runtime等で動く場合に備えてlazy importやtry-catchするとより安全だが、
+  // 今回はシンプルに実装する。環境変数がセットされていないとエラーになるので注意。
+  try {
+      const { pusherServer } = await import("@/lib/pusher");
+      if (process.env.PUSHER_APP_ID && process.env.PUSHER_SECRET) {
+        await pusherServer.trigger(`room-${code}`, "update", updatedRoom);
+      }
+  } catch (err) {
+      console.error("Pusher trigger error:", err);
   }
   
   return updatedRoom;
