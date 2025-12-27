@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getRoom, updateRoom } from "@/lib/rooms";
+import { GamePhase } from "@/types/game";
 
 // お題投票
 export async function POST(
@@ -49,7 +50,7 @@ export async function POST(
     // 全員が投票したか確認
     const allVoted = updatedPlayers.every(p => p.hasSubmitted);
 
-    let newPhase = room.phase;
+    let newPhase: GamePhase = room.phase;
     let selectedTopic: string | undefined;
 
     if (allVoted) {

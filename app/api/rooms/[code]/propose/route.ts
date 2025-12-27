@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getRoom, updateRoom } from "@/lib/rooms";
+import { GamePhase } from "@/types/game";
 
 // お題提案
 export async function POST(
@@ -50,7 +51,7 @@ export async function POST(
     // 全員が提案したか確認
     const allProposed = updatedPlayers.every(p => p.hasSubmitted);
 
-    let newPhase = room.phase;
+    let newPhase: GamePhase = room.phase;
     let topicProposals = room.topicProposals;
 
     if (allProposed) {
