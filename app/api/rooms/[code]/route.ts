@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getRoom } from "@/lib/rooms";
 
+export const dynamic = "force-dynamic";
+
 // ルーム情報取得
 export async function GET(
   request: Request,
