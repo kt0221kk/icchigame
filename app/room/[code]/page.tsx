@@ -139,7 +139,7 @@ export default function RoomPage() {
     // 初回実行は initRoom で行われるため、インターバルのみ設定
     const interval = setInterval(async () => {
       await fetchRoomData();
-    }, 2000);
+    }, 5000);
 
     return () => clearInterval(interval);
   }, [roomCode, playerId]);
