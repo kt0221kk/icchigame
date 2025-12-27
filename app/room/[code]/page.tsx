@@ -28,11 +28,17 @@ export default function RoomPage() {
   const joiningRef = useRef(false);
 
   // ルーム情報取得関数
-  const fetchRoomData = async () => {
+  const fetchRoomData = async (retryCount = 0) => {
     try {
       const res = await fetch(`/api/rooms/${roomCode}`, { cache: "no-store" });
       if (!res.ok) {
         if (res.status === 404) {
+          // KVの書き込み遅延対策：作成直後は404になることがあるためリトライする
+          if (retryCount < 3) {
+            console.log(`Room not found, retrying... (${retryCount + 1}/3)`);
+            await new Promise(r => setTimeout(r, 1000));
+            return fetchRoomData(retryCount + 1);
+          }
           throw new Error("ルームが見つからない");
         }
         throw new Error("ルーム情報の取得に失敗しました");
