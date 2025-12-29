@@ -28,6 +28,26 @@ export default function WaitingRoom({ room, playerId }: Props) {
     }
   };
 
+  const handleKick = async (targetPlayerId: string, targetPlayerName: string) => {
+      if (!confirm(`${targetPlayerName} をルームから削除しますか？`)) return;
+      
+      try {
+          const res = await fetch(`/api/rooms/${room.code}/kick`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ playerId, targetPlayerId }),
+          });
+          
+          if (!res.ok) {
+              const data = await res.json();
+              alert(data.error || "削除に失敗しました");
+          }
+      } catch (err) {
+          console.error(err);
+          alert("削除に失敗しました");
+      }
+  };
+
   return (
     <div className="space-y-6">
       <div className="text-center">
@@ -55,12 +75,26 @@ export default function WaitingRoom({ room, playerId }: Props) {
               }`}
             >
               <div className="flex items-center justify-between">
-                <span className="font-medium text-gray-800">{player.name}</span>
-                {player.isHost && (
-                  <span className="text-xs bg-yellow-400 text-yellow-900 px-2 py-1 rounded-full">
-                    ホスト
-                  </span>
-                )}
+                <span className="font-medium text-gray-800 truncate mr-2">{player.name}</span>
+                <div className="flex items-center gap-1 shrink-0">
+                    {player.isHost && (
+                      <span className="text-xs bg-yellow-400 text-yellow-900 px-2 py-1 rounded-full whitespace-nowrap">
+                        ホスト
+                      </span>
+                    )}
+                    {isHost && !player.isHost && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleKick(player.id, player.name);
+                            }}
+                            className="w-6 h-6 flex items-center justify-center bg-red-100 text-red-500 rounded-full hover:bg-red-200 transition-colors text-xs font-bold"
+                            title="退出させる"
+                        >
+                            ✕
+                        </button>
+                    )}
+                </div>
               </div>
             </div>
           ))}

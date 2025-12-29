@@ -33,7 +33,8 @@ export interface Room {
   players: Player[];
   phase: GamePhase;
   currentRound: number;
-  topicProposals: TopicProposal[];
+  topicProposals: { playerId: string; topic: string }[];
+  scoringGroups?: { answers: string[]; players: string[]; score: number; }[]; // 採点中のグループ分け状態
   selectedTopic?: string;
   createdAt: number;
   updatedAt: number;

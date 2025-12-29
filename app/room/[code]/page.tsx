@@ -159,6 +159,17 @@ export default function RoomPage() {
             
             channel.bind("update", (updatedRoom: Room) => {
                 console.log("Updated room via Pusher:", updatedRoom);
+                
+                // キックされたかチェック
+                if (playerId) {
+                    const me = updatedRoom.players.find(p => p.id === playerId);
+                    if (!me) {
+                        alert("ルームから切断されました");
+                        router.push("/");
+                        return;
+                    }
+                }
+
                 setRoom(updatedRoom);
             });
         } catch (e) {

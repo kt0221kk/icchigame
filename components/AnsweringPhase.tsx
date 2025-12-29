@@ -15,6 +15,7 @@ export default function AnsweringPhase({ room, playerId }: Props) {
   const currentPlayer = room.players.find(p => p.id === playerId);
   const hasAnswered = currentPlayer?.hasSubmitted || false;
   const answeredCount = room.players.filter(p => p.hasSubmitted).length;
+  const isHost = room.hostId === playerId;
 
   const submitAnswer = async () => {
     if (!answer.trim()) {
@@ -39,6 +40,26 @@ export default function AnsweringPhase({ room, playerId }: Props) {
       alert("回答の提出に失敗しました");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const forceEndAnswering = async () => {
+    if (!confirm("まだ回答していないプレイヤーがいますが、強制的に締め切って採点に進みますか？\n（未回答のプレイヤーは今回のラウンドに参加できません）")) return;
+    
+    try {
+        const res = await fetch(`/api/rooms/${room.code}/force-end-answering`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ playerId }),
+        });
+
+        if (!res.ok) {
+            const data = await res.json();
+            alert(data.error || "強制終了に失敗しました");
+        }
+    } catch (err) {
+        console.error(err);
+        alert("強制終了に失敗しました");
     }
   };
 
@@ -144,6 +165,20 @@ export default function AnsweringPhase({ room, playerId }: Props) {
           ))}
         </div>
       </div>
+
+      {isHost && (
+        <div className="mt-8 border-t pt-6">
+            <button 
+              onClick={forceEndAnswering}
+              className="w-full text-red-600 bg-white border border-red-200 hover:bg-red-50 font-bold py-3 rounded-xl transition-colors text-sm shadow-sm"
+            >
+                ⚠️ 強制的に回答を締め切る
+            </button>
+            <p className="text-xs text-gray-400 mt-2 text-center">
+                ※回答していないプレイヤーがいても採点に進みます
+            </p>
+        </div>
+      )}
     </div>
   );
 }

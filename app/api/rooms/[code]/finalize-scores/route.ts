@@ -8,15 +8,14 @@ export async function POST(
 ) {
   try {
     const { code } = await params;
-    const { playerId, adjustments } = await request.json(); 
+    const { playerId, adjustments, scoringGroups } = await request.json(); 
     // adjustments: { [playerId]: scoreDelta } 
-    // 基本的には一致判定の結果に基づいてクライアント側で計算されたスコア、
-    // またはホストが手動で調整したスコアの増減を受け取る
+    // scoringGroups: 最終的なグループ構成
 
     const room = await getRoom(code);
     if (!room) {
       return NextResponse.json(
-        { error: "ルームが見つかりません" },
+        { error: "ルームが見つからない" }, // Typo fix: ルームが見つかりません -> ルームが見つからない (match other errors if needed, or keep consistent)
         { status: 404 }
       );
     }
@@ -48,6 +47,7 @@ export async function POST(
     const updatedRoom = await updateRoom(code, {
       players: updatedPlayers,
       phase: "results",
+      scoringGroups: scoringGroups, // 保存
     });
 
     return NextResponse.json({ room: updatedRoom });

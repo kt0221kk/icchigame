@@ -55,10 +55,15 @@ export async function POST(
       }));
 
     if (topicProposals.length === 0) {
-        return NextResponse.json(
-            { error: "有効なお題が一つもありません" },
-            { status: 400 }
-        );
+        const { getRandomTopics } = await import("@/lib/topics");
+        const randomTopics = getRandomTopics(4);
+        topicProposals = randomTopics.map((topic, index) => ({
+            id: `system-${Date.now()}-${index}`,
+            playerId: "system",
+            playerName: "お助けボット",
+            topic: topic,
+            votes: 0
+        }));
     }
 
     // hasSubmittedをリセット（次のフェーズのため）

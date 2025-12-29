@@ -1,220 +1,412 @@
-"use client";
+"use strict";
+import { useState, useEffect, useRef } from "react";
+import { Room } from "@/types/game";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragOverlay,
+  defaultDropAnimationSideEffects,
+  DragStartEvent,
+  DragOverEvent,
+  DragEndEvent,
+  DropAnimation,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  rectSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
-import { Room, Player } from "@/types/game";
-import { useState, useMemo } from "react";
-
-interface Props {
+type ScoringPhaseProps = {
   room: Room;
   playerId: string;
-}
+};
 
-export default function ScoringPhase({ room, playerId }: Props) {
-  const currentPlayer = room.players.find(p => p.id === playerId);
-  const isHost = currentPlayer?.isHost;
-  const [submitting, setSubmitting] = useState(false);
+type AnswerGroup = {
+  id: string;             // 一意なID (dnd-kit用)
+  answers: string[];      // このグループに含まれる回答文字列
+  players: string[];      // この回答を出したプレイヤーID
+  score: number;          // このグループの基礎点
+};
 
-  // 回答の初期グルーピング（完全一致で自動判定）
-  // グループID (0, 1, 2...) -> プレイヤーIDの配列
-  const [groups, setGroups] = useState<Map<number, string[]>>(() => {
-    const initialGroups = new Map<number, string[]>();
-    const answerToGroupId = new Map<string, number>();
-    let nextId = 0;
+// ソート可能なアイテム（プレイヤーの回答チップ）
+function SortableItem({ id, player, isHost }: { id: string; player: any; isHost: boolean }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: id, disabled: !isHost });
 
-    room.players.forEach(p => {
-      if (!p.answer) return;
-      const normalized = p.answer.toLowerCase().trim();
-      
-      if (answerToGroupId.has(normalized)) {
-        const groupId = answerToGroupId.get(normalized)!;
-        initialGroups.get(groupId)!.push(p.id);
-      } else {
-        answerToGroupId.set(normalized, nextId);
-        initialGroups.set(nextId, [p.id]);
-        nextId++;
-      }
-    });
-    return initialGroups;
-  });
-
-  // ドラッグ＆ドロップ用（簡易実装）
-  // 実際にはUIライブラリを使うのがいいが、今回は簡易的にクリック移動で実装
-  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
-
-  // スコア計算
-  const calculatedScores = useMemo(() => {
-    const adjustments: Record<string, number> = {};
-    
-    room.players.forEach(p => {
-        adjustments[p.id] = 0;
-    });
-
-    Array.from(groups.values()).forEach(playerIds => {
-      // 2人以上のグループなら、その人数分スコア追加
-      if (playerIds.length >= 2) {
-        const points = playerIds.length;
-        playerIds.forEach(pid => {
-          adjustments[pid] = points;
-        });
-      }
-    });
-    return adjustments;
-  }, [groups, room.players]);
-
-  const movePlayerToGroup = (targetInfo: { groupId?: number, createNew?: boolean }) => {
-    if (!selectedPlayerId) return;
-
-    setGroups(prev => {
-       const newGroups = new Map(prev);
-       
-       // 元のグループから削除
-       for (const [gid, pids] of newGroups.entries()) {
-           if (pids.includes(selectedPlayerId)) {
-               const newPids = pids.filter(id => id !== selectedPlayerId);
-               if (newPids.length === 0) {
-                   newGroups.delete(gid);
-               } else {
-                   newGroups.set(gid, newPids);
-               }
-               break;
-           }
-       }
-
-       // 新しいグループに追加
-       if (targetInfo.createNew) {
-           const newId = Math.max(-1, ...Array.from(newGroups.keys())) + 1;
-           newGroups.set(newId, [selectedPlayerId]);
-       } else if (targetInfo.groupId !== undefined) {
-           const pids = newGroups.get(targetInfo.groupId) || [];
-           newGroups.set(targetInfo.groupId, [...pids, selectedPlayerId]);
-       }
-       
-       return newGroups;
-    });
-    setSelectedPlayerId(null);
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
   };
 
-  const finalizeScores = async () => {
-    if (!confirm("採点を確定して結果を発表しますか？")) return;
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={`
+        px-3 py-1.5 rounded-lg text-sm font-medium shadow-sm flex items-center gap-2 select-none touch-none
+        ${isHost 
+            ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white cursor-grab active:cursor-grabbing hover:scale-105 transition-transform' 
+            : 'bg-gray-100 text-gray-700 cursor-default'}
+      `}
+    >
+      <span>{player?.name}</span>
+      <span className="font-bold bg-white/20 px-1.5 rounded text-xs">
+         {player?.answer}
+      </span>
+    </div>
+  );
+}
 
-    setSubmitting(true);
-    try {
-      const res = await fetch(`/api/rooms/${room.code}/finalize-scores`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerId, adjustments: calculatedScores }),
-      });
+// ドロップ可能なコンテナ（回答グループ）
+function DroppableContainer({ 
+  group, 
+  items, 
+  room, 
+  isHost 
+}: { 
+  group: AnswerGroup; 
+  items: string[]; 
+  room: Room; 
+  isHost: boolean 
+}) {
+  const { setNodeRef } = useSortable({ id: group.id, disabled: !isHost });
 
-      if (!res.ok) {
-        const data = await res.json();
-        alert(data.error || "操作に失敗しました");
+  return (
+    <div
+      ref={setNodeRef}
+      className={`
+        relative bg-white border-2 rounded-xl p-4 shadow-sm transition-all duration-300 min-h-[100px]
+        ${isHost ? 'border-purple-100 hover:border-purple-300' : 'border-gray-100'}
+      `}
+    >
+      <div className="flex justify-between items-center mb-3">
+        <div className="flex items-center gap-2 overflow-hidden">
+          <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm font-bold whitespace-nowrap">
+            {group.score}点
+          </span>
+          <h3 className="font-bold text-gray-800 text-lg truncate">
+             {/* グループ内の代表的な回答を表示 */}
+             {items.length > 0 ? room.players.find(p => p.id === items[0])?.answer : "(空のグループ)"}
+             {items.length > 1 && " など"}
+          </h3>
+        </div>
+        <span className="text-sm text-gray-500 whitespace-nowrap ml-2">
+          {items.length}人
+        </span>
+      </div>
+
+      <SortableContext items={items} strategy={rectSortingStrategy}>
+        <div className="flex flex-wrap gap-2">
+          {items.map((pid) => (
+            <SortableItem 
+                key={pid} 
+                id={pid} 
+                player={room.players.find(p => p.id === pid)} 
+                isHost={isHost} 
+            />
+          ))}
+        </div>
+      </SortableContext>
+    </div>
+  );
+}
+
+
+export default function ScoringPhase({ room, playerId }: ScoringPhaseProps) {
+  const isHost = room.players.find((p) => p.id === playerId)?.isHost;
+  // AnswerGroupにidを追加した型を使うため、state初期化時は注意
+  const [localGroups, setLocalGroups] = useState<AnswerGroup[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const initializedRef = useRef(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), // クリックとドラッグの誤判定防止
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  // 初期化ロジックの抽出
+  const calculateInitialGroups = () => {
+        const answers = room.players
+          .filter((p) => p.answer)
+          .map((p) => ({ id: p.id, ans: p.answer! }));
+
+        const groups: AnswerGroup[] = [];
+        const processed = new Set<string>();
+
+        let groupIdCounter = 0;
+
+        answers.forEach((item) => {
+            if (processed.has(item.id)) return;
+
+            const sameAnswers = answers.filter((a) => a.ans === item.ans);
+            sameAnswers.forEach((a) => processed.add(a.id));
+
+            groups.push({
+                id: `group-${groupIdCounter++}`,
+                answers: [item.ans],
+                players: sameAnswers.map((a) => a.id),
+                score: Math.max(0, sameAnswers.length - 1),
+            });
+        });
+
+        groups.sort((a, b) => b.score - a.score);
+        return groups;
+  };
+
+  // 初期化と同期
+  useEffect(() => {
+    // サーバーデータの反映
+    if (room.scoringGroups && room.scoringGroups.length > 0) {
+      // room.scoringGroupsにはidがないので、あれば使い、なければ付与して比較
+      const serverGroups = room.scoringGroups.map((g, i) => ({
+          ...g,
+          id: (g as any).id || `group-${i}` // 既存データにidがない場合のフォールバック
+      }));
+
+      // 簡易的な比較
+      const currentPlayersSig = JSON.stringify(localGroups.map(g => g.players.sort()));
+      const serverPlayersSig = JSON.stringify(serverGroups.map(g => g.players.sort()));
+
+      if (currentPlayersSig !== serverPlayersSig) {
+          setLocalGroups(serverGroups);
       }
-    } catch (err) {
-      console.error(err);
-      alert("エラーが発生しました");
-    } finally {
-      setSubmitting(false);
+    } 
+    // 初回初期化
+    else if (isHost && !initializedRef.current) {
+        initializedRef.current = true;
+        const groups = calculateInitialGroups();
+        setLocalGroups(groups);
+        syncToThinking(groups);
+    }
+  }, [room.scoringGroups, isHost, room.players]);
+
+
+  const syncToThinking = async (groups: AnswerGroup[]) => {
+      if (!isHost) return;
+      try {
+          await fetch(`/api/rooms/${room.code}/sync-scoring`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ scoringGroups: groups }),
+          });
+      } catch (err) {
+          console.error("Failed to sync scoring state", err);
+      }
+  };
+
+
+  // ドラッグ開始
+  const handleDragStart = (event: DragStartEvent) => {
+    if (!isHost) return;
+    setActiveId(event.active.id as string);
+  };
+
+  // ドラッグ中（コンテナ間の移動）
+  const handleDragOver = (event: DragOverEvent) => {
+    if (!isHost) return;
+    const { active, over } = event;
+    if (!over) return;
+
+    const activeId = active.id as string;
+    const overId = over.id as string;
+
+    // activeが所属するグループを探す
+    const activeGroupIndex = localGroups.findIndex(g => g.players.includes(activeId));
+    // overがグループIDか、プレイヤーIDか判定
+    let overGroupIndex = localGroups.findIndex(g => g.id === overId);
+    if (overGroupIndex === -1) {
+        // overがプレイヤーIDの場合、そのプレイヤーが所属するグループを探す
+        overGroupIndex = localGroups.findIndex(g => g.players.includes(overId));
+    }
+
+    if (activeGroupIndex !== -1 && overGroupIndex !== -1 && activeGroupIndex !== overGroupIndex) {
+        setLocalGroups((prev) => {
+            const next = [...prev];
+            // IDの重複を防ぐため、単純コピーではなく新しいオブジェクトとして扱うべきだが、
+            // ここでは簡易的に参照コピーで処理（Reactのstate更新としては不完全だが、直後のDragEndで同期される）
+            
+            // 元のグループから削除
+            next[activeGroupIndex] = {
+                ...next[activeGroupIndex],
+                players: next[activeGroupIndex].players.filter(p => p !== activeId)
+            };
+            
+            // 新しいグループに追加
+            next[overGroupIndex] = {
+                ...next[overGroupIndex],
+                players: [...next[overGroupIndex].players, activeId]
+            };
+
+             // スコア再計算
+            next[activeGroupIndex].score = Math.max(0, next[activeGroupIndex].players.length - 1);
+            next[overGroupIndex].score = Math.max(0, next[overGroupIndex].players.length - 1);
+            
+            return next;
+        });
     }
   };
 
-  if (!isHost) {
-      return (
-          <div className="text-center py-10">
-              <div className="text-5xl mb-4">💯</div>
-              <h2 className="text-2xl font-bold text-gray-800 mb-2">ホストが採点中...</h2>
-              <p className="text-gray-600">
-                表記ゆれなどをホストが確認しています。<br/>
-                まもなく結果発表です！
-              </p>
-          </div>
-      );
-  }
+  // ドラッグ終了
+  const handleDragEnd = (event: DragEndEvent) => {
+    if (!isHost) return;
+    const { active, over } = event;
+    setActiveId(null);
+
+    if (!over) return;
+    
+    // 最終的な同期 & ゴミ掃除
+    const cleanedGroups = localGroups.filter(g => g.players.length > 0);
+    
+    // state更新とサーバー同期
+    setLocalGroups(cleanedGroups);
+    syncToThinking(cleanedGroups);
+  };
+
+  // 新規グループ作成（ボタン操作用）
+  const createNewGroup = () => {
+      const newGroup: AnswerGroup = {
+          id: `group-${Date.now()}`,
+          answers: [],
+          players: [],
+          score: 0
+      };
+      setLocalGroups([...localGroups, newGroup]);
+  };
+  
+  // リセット
+  const handleReset = () => {
+      if (!confirm("グループ分けを自動判定の初期状態に戻しますか？")) return;
+      const groups = calculateInitialGroups();
+      setLocalGroups(groups);
+      syncToThinking(groups);
+  };
+
+  const handleFinalize = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+        const adjustments: Record<string, number> = {};
+        localGroups.forEach(group => {
+            group.players.forEach(pid => {
+                adjustments[pid] = group.score;
+            });
+        });
+
+      await fetch(`/api/rooms/${room.code}/finalize-scores`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playerId, adjustments, scoringGroups: localGroups }), 
+      });
+    } catch (err) {
+      console.error(err);
+      setIsSubmitting(false);
+    }
+  };
+  
+  const dropAnimation: DropAnimation = {
+      sideEffects: defaultDropAnimationSideEffects({
+        styles: {
+          active: {
+            opacity: '0.5',
+          },
+        },
+      }),
+    };
 
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="text-3xl font-bold text-gray-800 mb-2">採点調整</h2>
-        <p className="text-gray-600 text-sm">
-          回答をクリックして移動させることで、<br/>
-          「実は同じ意味」の回答をまとめることができます。<br/>
-          （2人以上同じグループになると得点になります）
+        <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-pink-600">
+          採点調整タイム
+        </h2>
+        <p className="text-gray-600 mt-2 text-sm">
+          {isHost
+            ? "同じ意味の回答をドラッグ＆ドロップでまとめてください"
+            : "ホストが採点を調整中です..."}
         </p>
       </div>
 
-      <div className="space-y-4">
-          <div className="grid gap-4">
-              {Array.from(groups.entries()).map(([groupId, playerIds]) => {
-                  const groupAnswer = room.players.find(p => p.id === playerIds[0])?.answer;
-                  const isMatch = playerIds.length >= 2;
-                  
-                  return (
-                      <div 
-                        key={groupId} 
-                        className={`p-4 rounded-xl border-2 ${isMatch ? 'border-purple-500 bg-purple-50' : 'border-gray-200 bg-white'}`}
-                      >
-                          <div className="flex justify-between items-center mb-2">
-                             <h3 className="font-bold text-gray-700">{groupAnswer} グループ</h3>
-                             {selectedPlayerId && !playerIds.includes(selectedPlayerId) && (
-                                <button 
-                                  onClick={() => movePlayerToGroup({ groupId })}
-                                  className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded hover:bg-purple-200"
-                                >
-                                    ここに移動
-                                </button>
-                             )}
-                          </div>
-                          
-                          <div className="flex flex-wrap gap-2">
-                              {playerIds.map(pid => {
-                                  const player = room.players.find(p => p.id === pid);
-                                  const isSelected = selectedPlayerId === pid;
-                                  return (
-                                      <button
-                                        key={pid}
-                                        onClick={() => setSelectedPlayerId(isSelected ? null : pid)}
-                                        className={`px-3 py-2 rounded-lg text-sm transition-all ${
-                                            isSelected 
-                                            ? 'bg-purple-600 text-white shadow-lg scale-105' 
-                                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                                        }`}
-                                      >
-                                          <div className="font-bold">{player?.answer}</div>
-                                          <div className="text-xs opacity-75">{player?.name}</div>
-                                      </button>
-                                  );
-                              })}
-                          </div>
-                      </div>
-                  )
-              })}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="space-y-4 pb-24">
+            <SortableContext items={localGroups.map(g => g.id)} strategy={rectSortingStrategy}>
+              {localGroups.map((group) => (
+                <DroppableContainer 
+                    key={group.id} 
+                    group={group} 
+                    items={group.players} // SortableContextはこの中で定義
+                    room={room} 
+                    isHost={!!isHost} 
+                />
+              ))}
+            </SortableContext>
+            
+            {/* 新規グループ作成エリア（空のドロップゾーンとして機能させるか、ボタンで追加してそこにドロップさせるか） */}
+             {isHost && (
+                <div 
+                    onClick={createNewGroup}
+                    className="border-2 border-dashed border-gray-300 rounded-xl p-4 flex items-center justify-center cursor-pointer hover:bg-gray-50 transition-colors text-gray-400 gap-2"
+                >
+                    <span>＋ 新しいグループを追加</span>
+                </div>
+            )}
+        </div>
+
+        <DragOverlay dropAnimation={dropAnimation}>
+            {activeId ? (
+                <SortableItem 
+                    id={activeId} 
+                    player={room.players.find(p => p.id === activeId)} 
+                    isHost={true} 
+                />
+            ) : null}
+        </DragOverlay>
+      </DndContext>
+
+      {isHost && (
+        <div className="fixed bottom-6 left-0 right-0 px-4 pointer-events-none">
+          <div className="max-w-md mx-auto pointer-events-auto flex flex-col gap-3">
+            <button
+                onClick={handleReset}
+                className="w-full bg-white text-gray-700 font-bold py-3 rounded-xl shadow-md border border-gray-200 hover:bg-gray-50 active:scale-95 transition-all text-sm"
+            >
+                ↻ 最初の状態にリセット
+            </button>
+
+            <button
+              onClick={handleFinalize}
+              disabled={isSubmitting}
+              className="w-full bg-gray-900 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-gray-800 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSubmitting ? "確定中..." : "採点を確定して結果へ"}
+            </button>
           </div>
-
-          {selectedPlayerId && (
-              <button
-                onClick={() => movePlayerToGroup({ createNew: true })}
-                className="w-full py-3 border-2 border-dashed border-gray-400 rounded-xl text-gray-500 hover:border-gray-600 hover:text-gray-700 transition"
-              >
-                  ＋ 新しいグループとして分離する
-              </button>
-          )}
-      </div>
-
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white shadow-[0_-4px_10px_rgba(0,0,0,0.1)] border-t">
-         <div className="max-w-md mx-auto flex justify-between items-center">
-             <div className="text-sm">
-                 <div>現在の加点対象: <span className="font-bold text-purple-600">{Object.values(calculatedScores).filter(s => s > 0).length}人</span></div>
-             </div>
-             <button
-                onClick={finalizeScores}
-                disabled={submitting}
-                className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded-lg transition"
-             >
-                 {submitting ? "確定中..." : "採点を確定して結果へ"}
-             </button>
-         </div>
-      </div>
-      
-      {/* Footer space filler */}
-      <div className="h-20"></div>
+        </div>
+      )}
     </div>
   );
 }
